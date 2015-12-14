@@ -490,7 +490,7 @@ class NestedSetsBehavior extends Behavior
     /**
      * @return void
      */
-    protected function moveNodeAsRoot()
+    public function moveNodeAsRoot()
     {
         $db = $this->owner->getDb();
         $leftValue = $this->owner->getAttribute($this->leftAttribute);
@@ -523,7 +523,7 @@ class NestedSetsBehavior extends Behavior
      * @param integer $value
      * @param integer $depth
      */
-    protected function moveNode($value, $depth)
+    public function moveNode($value, $depth)
     {
         $db = $this->owner->getDb();
         $leftValue = $this->owner->getAttribute($this->leftAttribute);
