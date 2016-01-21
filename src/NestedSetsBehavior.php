@@ -247,6 +247,24 @@ class NestedSetsBehavior extends Behavior
         return $this->owner->find()->andWhere($condition)->addOrderBy([$this->leftAttribute => SORT_ASC]);
     }
 
+    public function children($depth = null)
+    {
+        $condition = [
+            'and',
+            ['>=', $this->leftAttribute, $this->owner->getAttribute($this->leftAttribute)],
+            ['<=', $this->rightAttribute, $this->owner->getAttribute($this->rightAttribute)],
+        ];
+
+        if ($depth !== null) {
+            $condition[] = ['<=', $this->depthAttribute, $this->owner->getAttribute($this->depthAttribute) + $depth];
+        }
+
+        $this->applyTreeAttributeCondition($condition);
+
+        return $this->owner->find()->andWhere($condition)->addOrderBy([$this->leftAttribute => SORT_ASC]);
+    }
+
+ 
     /**
      * Gets the leaves of the node.
      * @return \yii\db\ActiveQuery
@@ -669,7 +687,7 @@ class NestedSetsBehavior extends Behavior
     /**
      * @param array $condition
      */
-    public function applyTreeAttributeCondition(&$condition)
+    protected function applyTreeAttributeCondition(&$condition)
     {
         if ($this->treeAttribute !== false) {
             $condition = [
