@@ -247,7 +247,7 @@ class NestedSetsBehavior extends Behavior
         return $this->owner->find()->andWhere($condition)->addOrderBy([$this->leftAttribute => SORT_ASC]);
     }
 
-    public function children($depth = null)
+    public function subtree($depth = null)
     {
         $condition = [
             'and',
