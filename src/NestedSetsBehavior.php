@@ -669,7 +669,7 @@ class NestedSetsBehavior extends Behavior
     /**
      * @param array $condition
      */
-    protected function applyTreeAttributeCondition(&$condition)
+    public function applyTreeAttributeCondition(&$condition)
     {
         if ($this->treeAttribute !== false) {
             $condition = [
