@@ -9,9 +9,11 @@ namespace creocoder\nestedsets;
 
 use yii\base\Behavior;
 use yii\base\NotSupportedException;
+use yii\base\InvalidConfigException;
 use yii\db\ActiveRecord;
 use yii\db\Exception;
 use yii\db\Expression;
+use yii\helpers\ArrayHelper;
 
 /**
  * NestedSetsBehavior
@@ -53,6 +55,23 @@ class NestedSetsBehavior extends Behavior
      * @var ActiveRecord|null
      */
     protected $node;
+    /**
+     * @var string|null
+     */
+    public $pathAttribute = false;
+
+    /**
+     * @var string|null
+     */
+    public $pathLabelAttribute = false;
+
+    /**
+     * @var string|null
+     */
+    public $pathSeparatorAttribute = '/';
+
+    public $pathChildrenNeedUpdate = false;
+    public $pathSelfNeedsUpdate = false;
 
     /**
      * @inheritdoc
@@ -67,6 +86,13 @@ class NestedSetsBehavior extends Behavior
             ActiveRecord::EVENT_BEFORE_DELETE => 'beforeDelete',
             ActiveRecord::EVENT_AFTER_DELETE => 'afterDelete',
         ];
+    }
+
+    public function init() {
+        parent::init();
+        if($this->pathAttribute && !$this->pathLabelAttribute) {
+            throw new InvalidConfigException('pathLabelAttribute must be defined if pathAttribute is set.');
+        }
     }
 
     /**
@@ -370,6 +396,9 @@ class NestedSetsBehavior extends Behavior
             default:
                 throw new NotSupportedException('Method "'. get_class($this->owner) . '::insert" is not supported for inserting new nodes.');
         }
+        if($this->pathAttribute) {
+            $this->pathSelfNeedsUpdate = true;
+        }
     }
 
     /**
@@ -384,6 +413,10 @@ class NestedSetsBehavior extends Behavior
         $this->owner->setAttribute($this->leftAttribute, 1);
         $this->owner->setAttribute($this->rightAttribute, 2);
         $this->owner->setAttribute($this->depthAttribute, 0);
+        if($this->pathAttribute) {
+            $this->pathSelfNeedsUpdate = true;
+            $this->pathChildrenNeedUpdate = true;
+        }
     }
 
     /**
@@ -410,6 +443,11 @@ class NestedSetsBehavior extends Behavior
         }
 
         $this->shiftLeftRightAttribute($value, 2);
+
+        if($this->pathAttribute) {
+            $this->pathSelfNeedsUpdate = true;
+            $this->pathChildrenNeedUpdate = true;
+        }
     }
 
     /**
@@ -429,6 +467,10 @@ class NestedSetsBehavior extends Behavior
                 [$this->treeAttribute => $this->owner->getAttribute($this->treeAttribute)],
                 [$primaryKey[0] => $this->owner->getAttribute($this->treeAttribute)]
             );
+        }
+
+        if($this->pathAttribute) {
+            $this->pathDoUpdated();
         }
 
         $this->operation = null;
@@ -474,6 +516,7 @@ class NestedSetsBehavior extends Behavior
                     throw new Exception('Can not move a node when the target node is child.');
                 }
         }
+        $this->pathCheckUpdated();
     }
 
     /**
@@ -498,7 +541,14 @@ class NestedSetsBehavior extends Behavior
                 $this->moveNode($this->node->getAttribute($this->rightAttribute) + 1, 0);
                 break;
             default:
+                if($this->pathAttribute) {
+                    $this->pathDoUpdated();
+                }
                 return;
+        }
+
+        if($this->pathAttribute) {
+            $this->pathDoUpdated();
         }
 
         $this->operation = null;
@@ -535,6 +585,11 @@ class NestedSetsBehavior extends Behavior
         );
 
         $this->shiftLeftRightAttribute($rightValue + 1, $leftValue - $rightValue - 1);
+
+        if ($this->pathAttribute) {
+            $this->pathSelfNeedsUpdate = true;
+            $this->pathChildrenNeedUpdate = true;
+        }
     }
 
     /**
@@ -607,8 +662,11 @@ class NestedSetsBehavior extends Behavior
                     [$this->treeAttribute => $this->owner->getAttribute($this->treeAttribute)],
                 ]
             );
-
             $this->shiftLeftRightAttribute($rightValue + 1, $leftValue - $rightValue - 1);
+        }
+        if ($this->pathAttribute) {
+            $this->pathSelfNeedsUpdate = true;
+            $this->pathChildrenNeedUpdate = true;
         }
     }
 
@@ -682,6 +740,70 @@ class NestedSetsBehavior extends Behavior
                 $condition
             );
         }
+    }
+
+    protected function pathDoUpdated() {
+        $this->owner->refresh();
+        if($this->pathSelfNeedsUpdate) {
+            $this->pathUpdateSelf();
+        }
+        if($this->pathChildrenNeedUpdate) {
+            $this->pathUpdateChildren();
+        }
+
+    }
+
+    protected function pathCheckUpdated() {
+        if($this->owner->isAttributeChanged($this->pathLabelAttribute)) {
+            $this->pathSelfNeedsUpdate = true;
+            $this->pathChildrenNeedUpdate = true;
+        }
+        elseif($this->owner->isAttributeChanged($this->pathAttribute)) {
+            $this->pathSelfNeedsUpdate = true;
+            $this->pathChildrenNeedUpdate = true;
+        }
+    }
+
+    /**
+     * updates the pathAttribute of all children
+     * @param ActiveRecord $node
+     * @return boolean
+     */
+    protected function pathUpdateSelf($parent = null)
+    {
+        if (!$this->pathAttribute) {
+            throw Exception("pathUpdateSelf() called without pathAttribute being configured.");
+        }
+        if (!$parent) {
+            $parent = $this->parents(1)->one();
+            if ($parent) {
+                $parentPath = $parent->getAttribute($this->pathAttribute);
+                $this->owner->setAttribute($this->pathAttribute, $parentPath . $this->pathSeparatorAttribute . $this->owner->getAttribute($this->pathLabelAttribute));
+            } else {
+                $this->owner->setAttribute($this->pathAttribute, $this->pathSeparatorAttribute . $this->owner->getAttribute($this->pathLabelAttribute));
+            }
+        }
+        $this->owner->updateAttributes([
+            $this->pathAttribute => $this->owner->getAttribute($this->pathAttribute)
+        ]);
+    }
+
+    protected function pathUpdateChildren() {
+        if (!$this->pathAttribute) {
+            throw Exception("pathUpdateChildren() called without pathAttribute being configured.");
+        }
+        if ($this->isLeaf()) {
+            return false;
+        }
+        $parentPath = $this->owner->getAttribute($this->pathAttribute);
+        $children = $this->children(1)->all();
+        foreach ($children as $child) {
+            $child->owner->setAttribute($this->pathAttribute, $parentPath . $this->pathSeparatorAttribute . $child->owner->getAttribute($this->pathLabelAttribute));
+            $child->pathSelfNeedsUpdate = true;
+            $child->pathChildrenNeedUpdate = true;
+            $child->owner->save(false);
+        }
+        return true;
     }
 
     /**
